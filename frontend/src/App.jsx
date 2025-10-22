@@ -1,9 +1,16 @@
 import React, { useState } from 'react'
 import { BarChart3, LineChart, FileText, Sparkles, Menu, X } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
+import RealTimeDashboard from './pages/RealTimeDashboard'
 
 export default function App(){
   const [open, setOpen] = useState(true)
+  const [useRealTimeDashboard, setUseRealTimeDashboard] = useState(true)
+  
+  if (useRealTimeDashboard) {
+    return <RealTimeDashboard />
+  }
+  
   return (
     <div className="min-h-screen bg-surface-900">
       <header className="sticky top-0 z-40 border-b border-white/10 glass">

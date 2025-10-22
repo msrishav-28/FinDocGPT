@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+websockets
 transformers
 torch
 sentence-transformers
@@ -11,3 +12,49 @@ yfinance
 python-multipart
 pydantic
 requests
+
+# Authentication and security dependencies
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+slowapi
+
+# Enhanced sentiment analysis dependencies
+datasets
+accelerate
+tokenizers
+
+# Document processing dependencies
+PyPDF2
+beautifulsoup4
+lxml
+
+# Database dependencies
+asyncpg
+psycopg2-binary
+alembic
+
+# Additional utilities
+python-dotenv
+email-validator
+psutil
+
+# Anomaly detection dependencies
+scipy
+statsmodels
+
+# External data source dependencies
+alpha-vantage
+quandl
+redis
+aioredis
+
+# Advanced forecasting dependencies
+tensorflow
+keras
+pmdarima
+arch
+
+# Asynchronous processing dependencies
+celery[redis]
+flower
