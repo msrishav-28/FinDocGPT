@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .routes import router
+from .core.config import settings
 from .middleware.rate_limit_middleware import RateLimitMiddleware
 from .middleware.error_middleware import ErrorHandlingMiddleware
 from .middleware.monitoring_middleware import MonitoringMiddleware
@@ -16,9 +17,15 @@ from .services.audit_service import audit_service
 from .services.compliance_service import compliance_service
 from .services.cache_service import cache_service
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Import monitoring components
+from .monitoring.logger import setup_logging, get_logger
+from .monitoring.health import health_monitor
+from .monitoring.dashboard import router as monitoring_router
+from .routes.health_routes import router as health_router
+
+# Setup comprehensive logging
+setup_logging()
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -74,6 +81,10 @@ async def lifespan(app: FastAPI):
         background_task_health = await background_task_service.health_check()
         logger.info(f"Background task service health: {background_task_health.get('status', 'unknown')}")
         
+        # Start health monitoring
+        await health_monitor.start_monitoring()
+        logger.info("Health monitoring started")
+        
     except Exception as e:
         logger.error(f"Failed to initialize database system: {e}")
         raise
@@ -99,6 +110,10 @@ async def lifespan(app: FastAPI):
         # Cleanup cache service
         await cache_service.cleanup()
         logger.info("Cache service cleaned up")
+        
+        # Stop health monitoring
+        await health_monitor.stop_monitoring()
+        logger.info("Health monitoring stopped")
         
         # Close database connections
         from .database.connection import close_database
@@ -135,6 +150,12 @@ app.add_middleware(MonitoringMiddleware)
 
 # Include API routes
 app.include_router(router, prefix="/api")
+
+# Include monitoring routes
+app.include_router(monitoring_router, prefix="/api")
+
+# Include health check routes
+app.include_router(health_router)
 
 # Set custom OpenAPI schema
 app.openapi = lambda: custom_openapi_schema(app)

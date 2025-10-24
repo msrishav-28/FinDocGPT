@@ -309,3 +309,162 @@ class ValidationService:
 
 # Global validation service instance
 validation_service = ValidationService()
+
+
+# Convenience functions for backward compatibility and testing
+def validate_financial_data(financial_data: Dict[str, Any]) -> List[str]:
+    """Validate financial data dictionary"""
+    errors = []
+    
+    for key, value in financial_data.items():
+        if not isinstance(value, (int, float)):
+            errors.append(f"Invalid {key}: must be a number")
+            continue
+            
+        # Revenue should be positive
+        if key.lower() == "revenue" and value < 0:
+            errors.append(f"Invalid {key}: revenue cannot be negative")
+        
+        # Ratios and margins should be reasonable
+        if "ratio" in key.lower() or "margin" in key.lower():
+            if value < 0:
+                errors.append(f"Invalid {key}: {key} cannot be negative")
+            if "margin" in key.lower() and value > 1.0:
+                errors.append(f"Invalid {key}: margin cannot exceed 100%")
+    
+    return errors
+
+
+def validate_document_metadata(metadata) -> List[str]:
+    """Validate document metadata"""
+    errors = []
+    
+    if not metadata.company or not metadata.company.strip():
+        errors.append("Company identifier is required")
+    
+    if not metadata.source or not metadata.source.strip():
+        errors.append("Document source is required")
+    
+    if metadata.filing_date and metadata.filing_date > datetime.now():
+        errors.append("Filing date cannot be in the future")
+    
+    return errors
+
+
+def validate_api_request(params: Dict[str, Any], request_type: str) -> List[str]:
+    """Validate API request parameters"""
+    errors = []
+    
+    if request_type == "pagination":
+        page = params.get("page", 1)
+        limit = params.get("limit", 20)
+        offset = params.get("offset", 0)
+        
+        if page <= 0:
+            errors.append("Page must be greater than 0")
+        if limit <= 0:
+            errors.append("Limit must be greater than 0")
+        if offset < 0:
+            errors.append("Offset cannot be negative")
+    
+    elif request_type == "search":
+        query = params.get("query", "")
+        company = params.get("company", "")
+        limit = params.get("limit", 10)
+        min_confidence = params.get("min_confidence", 0.0)
+        
+        if not query.strip():
+            errors.append("Query cannot be empty")
+        if company and len(company) > 10:
+            errors.append("Company ticker too long")
+        if limit > 100:
+            errors.append("Limit cannot exceed 100")
+        if not (0 <= min_confidence <= 1):
+            errors.append("Confidence must be between 0 and 1")
+    
+    elif request_type == "forecast":
+        ticker = params.get("ticker", "")
+        horizons = params.get("horizons", [])
+        
+        if not ticker.strip():
+            errors.append("Ticker cannot be empty")
+        if not horizons:
+            errors.append("At least one horizon must be specified")
+        for horizon in horizons:
+            if horizon <= 0:
+                errors.append(f"Invalid horizon: {horizon}")
+    
+    elif request_type == "recommendation":
+        ticker = params.get("ticker", "")
+        signals = params.get("signals", {})
+        risk_tolerance = params.get("risk_tolerance", 0.5)
+        
+        if not ticker.strip():
+            errors.append("Ticker cannot be empty")
+        for signal_name, signal_value in signals.items():
+            if "sentiment" in signal_name and not (-1 <= signal_value <= 1):
+                errors.append(f"Invalid {signal_name}: must be between -1 and 1")
+            elif "confidence" in signal_name and not (0 <= signal_value <= 1):
+                errors.append(f"Invalid {signal_name}: must be between 0 and 1")
+        if not (0 <= risk_tolerance <= 1):
+            errors.append("Risk tolerance must be between 0 and 1")
+    
+    return errors
+
+
+def sanitize_input(input_value: Any, input_type: str = "text") -> str:
+    """Sanitize input to prevent XSS and injection attacks"""
+    if input_value is None:
+        return ""
+    
+    # Convert to string
+    clean_value = str(input_value).strip()
+    
+    if input_type == "ticker":
+        # Keep only alphanumeric characters, convert to uppercase
+        clean_value = re.sub(r'[^A-Za-z0-9]', '', clean_value).upper()
+        return clean_value[:10]  # Limit length
+    
+    elif input_type == "numeric":
+        # Keep only digits, decimal points, and minus sign
+        clean_value = re.sub(r'[^0-9.\-]', '', clean_value)
+        return clean_value
+    
+    elif input_type == "filename":
+        # Remove dangerous characters
+        clean_value = re.sub(r'[<>:"/\\|?*]', '', clean_value)
+        clean_value = clean_value.replace('..', '')  # Prevent directory traversal
+        return clean_value[:255]  # Limit length
+    
+    else:  # Default text sanitization
+        # Remove HTML/script tags
+        clean_value = re.sub(r'<[^>]*>', '', clean_value)
+        # Remove potentially dangerous characters
+        clean_value = re.sub(r'[<>"\']', '', clean_value)
+        return clean_value
+
+
+def validate_date_range(start_date: datetime, end_date: datetime) -> List[str]:
+    """Validate date range"""
+    errors = []
+    
+    if start_date > end_date:
+        errors.append("Start date must be before end date")
+    
+    if (end_date - start_date).days > 3650:  # 10 years
+        errors.append("Date range cannot exceed 10 years")
+    
+    return errors
+
+
+def validate_numeric_range(value: float, min_value: Optional[float], max_value: Optional[float], field_name: str) -> List[str]:
+    """Validate numeric value within range"""
+    errors = []
+    
+    if min_value is not None and value < min_value:
+        errors.append(f"{field_name} must be at least {min_value}")
+    
+    if max_value is not None and value > max_value:
+        errors.append(f"{field_name} must be at most {max_value}")
+    
+    return errors

@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Bell, Settings, BarChart3, Activity } from 'lucide-react'
-import CustomizableDashboard from '../components/CustomizableDashboard'
-import RealTimeMarketData from '../components/RealTimeMarketData'
-import AlertManager from '../components/AlertManager'
-import NotificationSystem from '../components/NotificationSystem'
-import useWebSocket from '../hooks/useWebSocket'
+import { CustomizableDashboard, RealTimeMarketData } from '../components/organisms'
+import { AlertManager, NotificationSystem } from '../components/molecules'
+import { useWebSocket } from '../hooks'
 
 const RealTimeDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard')

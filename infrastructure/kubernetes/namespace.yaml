@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: financial-intelligence
+  labels:
+    name: financial-intelligence
+    app: financial-intelligence-system
