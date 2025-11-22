@@ -1,61 +1,41 @@
-# FinDocGPT
+# Financial Intelligence System
 
-FinDocGPT is a full-stack AI-powered financial document analysis platform. This project demonstrates advanced capabilities in financial Q&A, sentiment analysis, time-series forecasting, and actionable stock recommendations, all integrated into a modern web application.
+A comprehensive AI-powered platform for financial document analysis, market prediction, and investment decision-making.
 
-## Features
-- **Document Q&A:** Ask questions about uploaded financial documents using state-of-the-art NLP models.
-- **Sentiment Analysis:** Analyze the sentiment of financial reports and management commentary.
-- **Forecasting:** Predict future stock prices using Prophet and yfinance data.
-- **Recommendations:** Get transparent BUY/HOLD/SELL recommendations with explainability.
-- **Modern UI:** Built with React, Chart.js, and Tailwind CSS for a clean, responsive experience.
+## Quick Start
 
-## Getting Started
-
-### Backend (Python/FastAPI)
-1. Create a Python virtual environment in the `backend` folder.
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Start the backend server:
-   ```bash
-   uvicorn app.main:app --reload --port 8000
-   ```
-
-### Frontend (React/Vite)
-1. Navigate to the `frontend` folder:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the frontend development server:
-   ```bash
-   npm run dev
-   ```
-
-### Docker Compose (Recommended)
-To run both backend and frontend together:
 ```bash
+# Clone the repository
+git clone <repository-url>
+cd financial-intelligence-system
+
+# Start with Docker Compose (recommended)
 docker compose up --build
+
+# Access the application
+# Frontend: http://localhost:5173
+# Backend API: http://localhost:8000
+# API Documentation: http://localhost:8000/docs
 ```
-Backend: [http://localhost:8000](http://localhost:8000)
-Frontend: [http://localhost:5173](http://localhost:5173)
 
-## Development Notes
-- The backend is built with FastAPI and leverages HuggingFace Transformers, FinBERT, Prophet, and other ML libraries.
-- The frontend is built with React and Vite, using Chart.js for data visualization and Tailwind CSS for styling.
-- All code, architecture, and integrations were designed and implemented by me, with a focus on extensibility and clarity.
+## Documentation
 
-## Troubleshooting
-| Problem                      | Cause                                 | Fix                                                      |
-|------------------------------|---------------------------------------|----------------------------------------------------------|
-| Frontend CORS error          | Backend not allowing frontend origin   | Add CORS middleware in `backend/app/main.py`             |
-| yfinance errors/no forecast  | Invalid ticker or API rate limit       | Try a different ticker (e.g., MSFT, TSLA)                |
-| Model download slow          | HuggingFace model cache on first run   | Wait for download, or pre-download models                |
-| Prophet install fails        | Missing cmdstanpy build                | `pip install pystan==2.19.1.1` before Prophet            |
+For comprehensive documentation, please see the [docs/](./docs/) directory:
 
-## About
-For questions, feedback, or collaboration, feel free to reach out.
+- **[Project Overview](./docs/README.md)** - Complete project documentation
+- **[API Reference](./docs/API.md)** - REST API and WebSocket documentation
+- **[Architecture Guide](./docs/ARCHITECTURE.md)** - System design and architecture
+- **[Deployment Guide](./docs/DEPLOYMENT.md)** - Docker, Kubernetes, and production deployment
+- **[Contributing Guide](./docs/CONTRIBUTING.md)** - Development guidelines and standards
+- **[CI/CD Guide](./docs/CI_CD.md)** - Continuous integration and deployment
+
+## Technology Stack
+
+- **Backend**: Python, FastAPI, PostgreSQL, Redis, Celery
+- **Frontend**: React, Vite, Tailwind CSS, Chart.js
+- **ML/AI**: PyTorch, Transformers, Prophet, FinBERT
+- **Infrastructure**: Docker, Kubernetes, Nginx, Prometheus
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for details.

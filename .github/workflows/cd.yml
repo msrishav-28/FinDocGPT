@@ -1,0 +1,212 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Deploy to staging
+  deploy-staging:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > ~/.kube/config
+
+    - name: Deploy to staging
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Update image tags in Kubernetes manifests
+        sed -i "s|financial-intelligence/backend:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${IMAGE_TAG}|g" k8s/backend.yaml
+        sed -i "s|financial-intelligence/frontend:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:${IMAGE_TAG}|g" k8s/frontend.yaml
+        
+        # Apply Kubernetes manifests
+        kubectl apply -f k8s/ -n financial-intelligence-staging
+        
+        # Wait for rollout to complete
+        kubectl rollout status deployment/backend -n financial-intelligence-staging --timeout=600s
+        kubectl rollout status deployment/frontend -n financial-intelligence-staging --timeout=600s
+        kubectl rollout status deployment/celery-worker -n financial-intelligence-staging --timeout=600s
+
+    - name: Run health checks
+      run: |
+        # Wait for services to be ready
+        sleep 60
+        
+        # Get service URL
+        STAGING_URL=$(kubectl get service nginx-service -n financial-intelligence-staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        # Run basic health checks
+        curl -f http://${STAGING_URL}/health || exit 1
+        curl -f http://${STAGING_URL}/api/health || exit 1
+
+    - name: Notify deployment success
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        channel: '#deployments'
+        text: '🚀 Successfully deployed to staging environment'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Deploy to production
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    needs: [deploy-staging]
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+
+    - name: Create database backup
+      run: |
+        # Create backup before deployment
+        kubectl exec -n financial-intelligence deployment/postgres -- pg_dump -U postgres financial_intelligence > backup-$(date +%Y%m%d-%H%M%S).sql
+        
+        # Upload backup to S3 or other storage
+        # aws s3 cp backup-*.sql s3://your-backup-bucket/
+
+    - name: Blue-Green Deployment
+      env:
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Determine current and next environments
+        CURRENT_ENV=$(kubectl get service app-service -n financial-intelligence -o jsonpath='{.spec.selector.version}' || echo "blue")
+        if [ "$CURRENT_ENV" = "blue" ]; then
+          NEXT_ENV="green"
+        else
+          NEXT_ENV="blue"
+        fi
+        
+        echo "Deploying to $NEXT_ENV environment"
+        
+        # Update image tags for new environment
+        sed -i "s|financial-intelligence/backend:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:${IMAGE_TAG}|g" k8s/backend.yaml
+        sed -i "s|financial-intelligence/frontend:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:${IMAGE_TAG}|g" k8s/frontend.yaml
+        
+        # Add version label for blue-green deployment
+        sed -i "s|app: backend|app: backend\n        version: ${NEXT_ENV}|g" k8s/backend.yaml
+        sed -i "s|app: frontend|app: frontend\n        version: ${NEXT_ENV}|g" k8s/frontend.yaml
+        
+        # Deploy to new environment
+        kubectl apply -f k8s/ -n financial-intelligence
+        
+        # Wait for new deployment to be ready
+        kubectl rollout status deployment/backend-${NEXT_ENV} -n financial-intelligence --timeout=600s
+        kubectl rollout status deployment/frontend-${NEXT_ENV} -n financial-intelligence --timeout=600s
+
+    - name: Health check new environment
+      run: |
+        # Get new environment URL
+        NEXT_ENV_URL=$(kubectl get service nginx-service-${NEXT_ENV} -n financial-intelligence -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        # Run comprehensive health checks
+        for i in {1..10}; do
+          if curl -f http://${NEXT_ENV_URL}/health && curl -f http://${NEXT_ENV_URL}/api/health/detailed; then
+            echo "Health check passed"
+            break
+          fi
+          echo "Health check failed, retrying in 30 seconds..."
+          sleep 30
+        done
+
+    - name: Switch traffic to new environment
+      run: |
+        # Update service selector to point to new environment
+        kubectl patch service app-service -n financial-intelligence -p '{"spec":{"selector":{"version":"'${NEXT_ENV}'"}}}'
+        
+        echo "Traffic switched to ${NEXT_ENV} environment"
+
+    - name: Monitor new deployment
+      run: |
+        # Monitor for 5 minutes
+        sleep 300
+        
+        # Check error rates and performance
+        ERROR_RATE=$(curl -s "http://prometheus:9090/api/v1/query?query=rate(http_requests_failed[5m])/rate(http_requests_started[5m])*100" | jq -r '.data.result[0].value[1]')
+        
+        if (( $(echo "$ERROR_RATE > 5" | bc -l) )); then
+          echo "High error rate detected: $ERROR_RATE%"
+          exit 1
+        fi
+
+    - name: Cleanup old environment
+      run: |
+        # Remove old environment deployments
+        kubectl delete deployment backend-${CURRENT_ENV} -n financial-intelligence --ignore-not-found
+        kubectl delete deployment frontend-${CURRENT_ENV} -n financial-intelligence --ignore-not-found
+        kubectl delete service nginx-service-${CURRENT_ENV} -n financial-intelligence --ignore-not-found
+
+    - name: Notify production deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        channel: '#deployments'
+        text: '🎉 Successfully deployed to production environment with blue-green deployment'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Rollback capability
+  rollback:
+    runs-on: ubuntu-latest
+    if: failure()
+    environment: production
+    
+    steps:
+    - name: Rollback deployment
+      run: |
+        # Rollback to previous version
+        kubectl rollout undo deployment/backend -n financial-intelligence
+        kubectl rollout undo deployment/frontend -n financial-intelligence
+        kubectl rollout undo deployment/celery-worker -n financial-intelligence
+        
+        # Wait for rollback to complete
+        kubectl rollout status deployment/backend -n financial-intelligence --timeout=300s
+        kubectl rollout status deployment/frontend -n financial-intelligence --timeout=300s
+
+    - name: Notify rollback
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        channel: '#deployments'
+        text: '⚠️ Deployment failed, rolled back to previous version'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

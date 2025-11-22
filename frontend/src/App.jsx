@@ -1,13 +1,23 @@
-import React from 'react'
+import React, { useState } from 'react'
 import Dashboard from './pages/Dashboard'
+import RealTimeDashboard from './pages/RealTimeDashboard'
+import { DocumentAnalysisInterface, InvestmentRecommendationInterface, AppLayout } from './components'
 
 export default function App(){
+  const [activeView, setActiveView] = useState('dashboard') // dashboard, documents, recommendations
+  
+  const views = [
+    { id: 'dashboard', label: 'Dashboard', component: RealTimeDashboard },
+    { id: 'documents', label: 'Documents', component: DocumentAnalysisInterface },
+    { id: 'recommendations', label: 'Recommendations', component: InvestmentRecommendationInterface }
+  ]
+  
+  const currentView = views.find(v => v.id === activeView)
+  const Component = currentView?.component || RealTimeDashboard
+  
   return (
-    <div className="min-h-screen bg-gray-100">
-      <div className="max-w-6xl mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-4">FinDocGPT — Hackathon Demo</h1>
-        <Dashboard />
-      </div>
-    </div>
+    <AppLayout activeView={activeView} onViewChange={setActiveView}>
+      <Component />
+    </AppLayout>
   )
 }

@@ -1,0 +1,263 @@
+name: Automated Model Retraining
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      model_type:
+        description: 'Type of model to retrain'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - sentiment
+        - forecast
+        - anomaly
+        - recommendation
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Check if retraining is needed
+  check-retraining-needed:
+    runs-on: ubuntu-latest
+    outputs:
+      needs_retraining: ${{ steps.check.outputs.needs_retraining }}
+      models_to_retrain: ${{ steps.check.outputs.models_to_retrain }}
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install requests pandas numpy
+
+    - name: Check model performance
+      id: check
+      env:
+        API_BASE_URL: ${{ secrets.PRODUCTION_API_URL }}
+        API_KEY: ${{ secrets.MODEL_RETRAINING_API_KEY }}
+      run: |
+        python scripts/check_model_performance.py \
+          --api-url "$API_BASE_URL" \
+          --api-key "$API_KEY" \
+          --model-type "${{ github.event.inputs.model_type || 'all' }}" \
+          --output-format github
+
+  # Retrain models
+  retrain-models:
+    runs-on: ubuntu-latest
+    needs: [check-retraining-needed]
+    if: needs.check-retraining-needed.outputs.needs_retraining == 'true'
+    
+    strategy:
+      matrix:
+        model: ${{ fromJson(needs.check-retraining-needed.outputs.models_to_retrain) }}
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements/production.txt') }}
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements/production.txt
+
+    - name: Download training data
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        S3_BUCKET: ${{ secrets.TRAINING_DATA_BUCKET }}
+      run: |
+        aws s3 sync s3://$S3_BUCKET/training-data/ ./data/training/
+
+    - name: Retrain model
+      env:
+        MODEL_TYPE: ${{ matrix.model }}
+        MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+        MLFLOW_EXPERIMENT_NAME: financial-intelligence-retraining
+      run: |
+        python scripts/retrain_model.py \
+          --model-type "$MODEL_TYPE" \
+          --data-path ./data/training/ \
+          --output-path ./models/ \
+          --experiment-name "$MLFLOW_EXPERIMENT_NAME"
+
+    - name: Validate retrained model
+      run: |
+        python scripts/validate_model.py \
+          --model-type "${{ matrix.model }}" \
+          --model-path ./models/ \
+          --validation-data ./data/validation/
+
+    - name: Upload model artifacts
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        S3_BUCKET: ${{ secrets.MODEL_ARTIFACTS_BUCKET }}
+      run: |
+        # Upload to S3 with timestamp
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        aws s3 cp ./models/ s3://$S3_BUCKET/models/${{ matrix.model }}/$TIMESTAMP/ --recursive
+        
+        # Update latest symlink
+        aws s3 cp ./models/ s3://$S3_BUCKET/models/${{ matrix.model }}/latest/ --recursive
+
+    - name: Create model deployment PR
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'feat: update ${{ matrix.model }} model'
+        title: 'Automated Model Update: ${{ matrix.model }}'
+        body: |
+          ## Automated Model Retraining
+          
+          This PR contains an updated ${{ matrix.model }} model that was automatically retrained.
+          
+          ### Model Performance Metrics
+          - Model Type: ${{ matrix.model }}
+          - Training Date: $(date)
+          - Validation Accuracy: [To be filled by validation script]
+          
+          ### Changes
+          - Updated model weights and configuration
+          - Performance improvements based on recent data
+          
+          Please review the model performance metrics before merging.
+        branch: automated-model-update-${{ matrix.model }}-${{ github.run_number }}
+        delete-branch: true
+
+  # Deploy retrained models
+  deploy-models:
+    runs-on: ubuntu-latest
+    needs: [retrain-models]
+    if: success()
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > ~/.kube/config
+
+    - name: Create model deployment job
+      run: |
+        # Create Kubernetes job to update models in production
+        cat <<EOF | kubectl apply -f -
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: model-update-$(date +%s)
+          namespace: financial-intelligence
+        spec:
+          template:
+            spec:
+              containers:
+              - name: model-updater
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:latest
+                command: ["python", "scripts/update_production_models.py"]
+                env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: access-key-id
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: secret-access-key
+                - name: S3_BUCKET
+                  value: "${{ secrets.MODEL_ARTIFACTS_BUCKET }}"
+              restartPolicy: Never
+          backoffLimit: 3
+        EOF
+
+    - name: Wait for model deployment
+      run: |
+        kubectl wait --for=condition=complete job/model-update-* -n financial-intelligence --timeout=1800s
+
+    - name: Verify model deployment
+      env:
+        API_BASE_URL: ${{ secrets.PRODUCTION_API_URL }}
+        API_KEY: ${{ secrets.MODEL_RETRAINING_API_KEY }}
+      run: |
+        # Validate new models
+        python scripts/validate_deployed_models.py \
+          --api-url "$API_BASE_URL" \
+          --api-key "$API_KEY"
+
+  # Notify results
+  notify-results:
+    runs-on: ubuntu-latest
+    needs: [check-retraining-needed, retrain-models, deploy-models]
+    if: always()
+    
+    steps:
+    - name: Notify success
+      if: success()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        channel: '#ml-ops'
+        text: |
+          🤖 Automated model retraining completed successfully!
+          
+          Models retrained: ${{ needs.check-retraining-needed.outputs.models_to_retrain }}
+          Deployment status: ✅ Success
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify failure
+      if: failure()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        channel: '#ml-ops'
+        text: |
+          ❌ Automated model retraining failed!
+          
+          Please check the workflow logs for details.
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Notify no retraining needed
+      if: needs.check-retraining-needed.outputs.needs_retraining == 'false'
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        channel: '#ml-ops'
+        text: |
+          ℹ️ Model performance check completed - no retraining needed.
+          
+          All models are performing within acceptable thresholds.
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

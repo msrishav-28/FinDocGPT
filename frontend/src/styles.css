@@ -1,4 +1,120 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto; }
+
+/* React Grid Layout Styles */
+.react-grid-layout {
+  position: relative;
+}
+
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top;
+}
+
+.react-grid-item.cssTransforms {
+  transition-property: transform;
+}
+
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  background: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxnIGZpbGw9IiM0Qjc0ODgiIGZpbGwtcnVsZT0iZXZlbm9kZCI+PHBhdGggZD0ibTUgNWgtNHYtNGg0eiIvPjwvZz48L3N2Zz4=');
+  background-position: bottom right;
+  padding: 0 3px 3px 0;
+  background-repeat: no-repeat;
+  background-origin: content-box;
+  box-sizing: border-box;
+  cursor: se-resize;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(59, 130, 246, 0.2);
+  opacity: 0.2;
+  transition-duration: 100ms;
+  z-index: 2;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -o-user-select: none;
+  user-select: none;
+  border-radius: 0.75rem;
+  border: 2px dashed rgba(59, 130, 246, 0.5);
+}
+
+.react-grid-item.react-draggable-dragging {
+  transition: none;
+  z-index: 3;
+  opacity: 0.8;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(59, 130, 246, 0.15);
+  opacity: 0.2;
+  transition-duration: 100ms;
+  z-index: 2;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -o-user-select: none;
+  user-select: none;
+}
+
+:root { color-scheme: dark; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { 
+	font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto; 
+	background: #0b0b0d;
+	color: #e5e7eb;
+}
+
+/* Utilities for neon gradient accents */
+.gradient-brand { background-image: linear-gradient(135deg, #6b21a8 0%, #a855f7 45%, #db2777 100%); }
+.text-gradient-brand { background-image: linear-gradient(135deg, #a855f7, #db2777); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.glass { background: rgba(20,20,26,0.6); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); border: 1px solid rgba(148, 51, 234, 0.18); }
+.focus-neon:focus { outline: none; box-shadow: 0 0 0 3px rgba(168,85,247,0.45), 0 0 0 1px rgba(168,85,247,0.8) inset; }
+
+/* Subtle entrance animations */
+@keyframes rise-fade {
+	from { opacity: 0; transform: translateY(6px) scale(0.995); }
+	to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes glow-in {
+	from { box-shadow: 0 0 0 rgba(168,85,247,0); }
+	to { box-shadow: 0 10px 25px rgba(168,85,247,0.15); }
+}
+
+.animate-chart-in { animation: rise-fade 500ms cubic-bezier(.22,.61,.36,1); }
+.animate-card-in { animation: rise-fade 420ms cubic-bezier(.22,.61,.36,1); }
+
+/* Button polish: gradient-brand buttons get subtle lift and glow on hover */
+button.gradient-brand {
+	transition: transform 200ms ease, box-shadow 200ms ease, filter 200ms ease;
+	box-shadow: 0 6px 18px rgba(168,85,247,0.18);
+}
+button.gradient-brand:hover {
+	transform: translateY(-1px);
+	filter: brightness(1.05);
+	box-shadow: 0 10px 28px rgba(168,85,247,0.24);
+}
+button.gradient-brand:active { transform: translateY(0); filter: brightness(0.98); }
+
+/* Hover utility for cards */
+.hover-lift {
+	transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+.hover-lift:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(0,0,0,0.35); }
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+	* {
+		animation-duration: 1ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 1ms !important;
+		scroll-behavior: auto !important;
+	}
+	button.gradient-brand, .hover-lift { transform: none !important; }
+}
